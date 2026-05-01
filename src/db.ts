@@ -1,4 +1,5 @@
 import { MongoClient, Db } from "mongodb";
+import { Achievement } from "./types";
 
 let cachedDb: Db | null = null;
 
@@ -19,3 +20,14 @@ export async function connectToDatabase(uri: string): Promise<Db> {
 
   return cachedDb;
 }
+
+export const getAchievements = async (uri: string) => {
+  const db = await connectToDatabase(uri);
+
+  const achievements = await db
+    .collection<Achievement>("Achievement")
+    .find()
+    .toArray();
+
+  return achievements;
+};

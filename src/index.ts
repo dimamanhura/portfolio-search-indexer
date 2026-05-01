@@ -1,59 +1,17 @@
 import { ScheduledEvent, Context } from "aws-lambda";
-import { Logger } from "@aws-lambda-powertools/logger";
-import { Client as OpenSearchClient } from "@opensearch-project/opensearch";
-import { AwsSigv4Signer } from "@opensearch-project/opensearch/aws";
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { connectToDatabase } from "./db";
-import { Achievement } from "./types/achievement";
-import { SearchItemType } from "./types/search-item-type";
-
-const logger = new Logger({ serviceName: "portfolio-search-indexer" });
-
-// --- Types & Interfaces ---
-
-interface Config {
-  OPENSEARCH_ENDPOINT: string;
-  OPENSEARCH_INDEX_NAME: string;
-  AWS_REGION: string;
-  MONGODB_URL: string;
-}
-
-interface TransformedDocument {
-  id: string;
-  type: SearchItemType;
-  title: string;
-  subtitle: string;
-  searchable_text: string;
-}
-
-// --- Configuration Validator ---
-
-const loadAndValidateConfig = (): Config => {
-  const {
-    OPENSEARCH_ENDPOINT,
-    OPENSEARCH_INDEX_NAME,
-    AWS_REGION,
-    MONGODB_URL,
-  } = process.env;
-
-  if (
-    !OPENSEARCH_ENDPOINT ||
-    !OPENSEARCH_INDEX_NAME ||
-    !AWS_REGION ||
-    !MONGODB_URL
-  ) {
-    throw new Error("Missing required environment variables.");
-  }
-
-  return {
-    OPENSEARCH_ENDPOINT,
-    OPENSEARCH_INDEX_NAME,
-    AWS_REGION,
-    MONGODB_URL,
-  };
-};
-
-// --- Lambda Handler ---
+import { logger } from "./logger";
+import { getAchievements } from "./db";
+import { loadAndValidateConfig } from "./config";
+import { errorResponse, successResponse } from "./response";
+import {
+  checkIndexExists,
+  refreshIndex,
+  deleteIndex,
+  createIndex,
+  bulkUpload,
+} from "./open-search";
+import { OpenSearchDocument, OpenSearchIndexConfig } from "./types";
+import { transformAchievement } from "./transformers";
 
 export const handler = async (
   event: ScheduledEvent,
@@ -62,109 +20,94 @@ export const handler = async (
   logger.addContext(context);
 
   try {
+    logger.info("Step 1: Checking configuration");
     const config = loadAndValidateConfig();
+
+    if (!config.success) {
+      logger.error("Configuration Error", { missingVars: config.errorMessage });
+      return errorResponse(500, "Internal Server Configuration Error.");
+    }
+
     const {
       OPENSEARCH_ENDPOINT,
       OPENSEARCH_INDEX_NAME,
       AWS_REGION,
       MONGODB_URL,
-    } = config;
-
-    logger.info("Step 1: Initializing Clients");
-    const osClient = new OpenSearchClient({
-      ...AwsSigv4Signer({
-        region: AWS_REGION,
-        service: "es",
-        getCredentials: () => fromNodeProviderChain()(),
-      }),
-      node: OPENSEARCH_ENDPOINT,
-    });
+    } = config.data;
 
     logger.info("Step 2: Connecting to MongoDB and fetching data");
-    const db = await connectToDatabase(MONGODB_URL); // Uses the database name from your connection string
+    const [achievements] = await Promise.all([getAchievements(MONGODB_URL)]);
 
-    // Fetching collections in parallel
-    const [achievements] = await Promise.all([
-      db.collection<Achievement>("Achievement").find().toArray(),
-    ]);
+    logger.info("Step 3: Transforming data", {
+      achievementCount: achievements.length,
+    });
 
-    logger.info("Step 3: Transforming data");
-    const transformedData: TransformedDocument[] = [
-      ...achievements.map((achievement) => ({
-        id: achievement._id.toString(),
-        type: SearchItemType.achievement,
-        title: achievement.title || "",
-        subtitle: achievement.description || "",
-        searchable_text: `
-          Solution: ${achievement.solution?.join(",") || ""}
-          Result: ${achievement.result?.join(",") || ""}
-          Notes: ${achievement.notes?.join(",") || ""}
-        `,
-      })),
+    const transformedData: OpenSearchDocument[] = [
+      ...achievements.map(transformAchievement),
     ];
 
     if (transformedData.length === 0) {
-      return { statusCode: 200, body: "No data to sync." };
+      logger.info("Sync aborted: No data found in database to sync.");
+      return successResponse("No data to sync.");
     }
 
-    logger.info("Step 4: Recreating OpenSearch Index", {
+    logger.info("Step 4: Preparing OpenSearch Index environment", {
       indexName: OPENSEARCH_INDEX_NAME,
     });
-    const { body: exists } = await osClient.indices.exists({
+
+    const indexConfig: OpenSearchIndexConfig = {
+      region: AWS_REGION,
       index: OPENSEARCH_INDEX_NAME,
+      node: OPENSEARCH_ENDPOINT,
+    };
+
+    logger.info("Checking if OpenSearch index exists...", {
+      indexName: OPENSEARCH_INDEX_NAME,
     });
-    if (exists) await osClient.indices.delete({ index: OPENSEARCH_INDEX_NAME });
+    const isIndexExists = await checkIndexExists(indexConfig);
 
-    await osClient.indices.create({
-      index: OPENSEARCH_INDEX_NAME,
-      body: {
-        settings: {
-          index: {
-            number_of_shards: 1,
-            number_of_replicas: OPENSEARCH_INDEX_NAME.includes("prod") ? 1 : 0,
-          },
-        },
-        mappings: {
-          properties: {
-            id: { type: "keyword" },
-            type: { type: "keyword" },
-            title: { type: "text" },
-            subtitle: { type: "text" },
-            searchable_text: { type: "text" },
-          },
-        },
-      },
-    });
-
-    logger.info("Step 5: Bulk upload", { count: transformedData.length });
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (const doc of transformedData) {
-      try {
-        await osClient.index({
-          index: OPENSEARCH_INDEX_NAME,
-          id: doc.id,
-          body: doc,
-        });
-        successCount++;
-      } catch (err) {
-        logger.error(`Failed to index document ID: ${doc.id}`, { error: err });
-        errorCount++;
-      }
+    if (isIndexExists) {
+      logger.info("Index found. Deleting old index...", {
+        indexName: OPENSEARCH_INDEX_NAME,
+      });
+      await deleteIndex(indexConfig);
+      logger.info("Old index successfully deleted.");
+    } else {
+      logger.info("No existing index found. Proceeding to creation.");
     }
 
-    await osClient.indices.refresh({ index: OPENSEARCH_INDEX_NAME });
+    logger.info("Creating new OpenSearch index...", {
+      indexName: OPENSEARCH_INDEX_NAME,
+    });
+    await createIndex(indexConfig);
+    logger.info("New index successfully created.");
 
-    if (errorCount > 0) {
-      throw new Error(
-        `Upload completed with errors. ${successCount} succeeded, ${errorCount} failed.`
+    logger.info("Step 5: Executing bulk upload", {
+      documentCount: transformedData.length,
+    });
+    const uploadResult = await bulkUpload(indexConfig, transformedData);
+
+    if (!uploadResult.success) {
+      logger.error("Bulk upload failed", { error: uploadResult.errorMessage });
+      return errorResponse(
+        500,
+        uploadResult.errorMessage || "Bulk upload operation failed."
       );
     }
+    logger.info("Bulk upload completed successfully.");
 
-    return { statusCode: 200, body: `Synced ${transformedData.length} items.` };
-  } catch (error) {
-    logger.error("Sync failed", { error });
-    throw error;
+    logger.info("Step 6: Refreshing index to make documents searchable...", {
+      indexName: OPENSEARCH_INDEX_NAME,
+    });
+    await refreshIndex(indexConfig);
+    logger.info("Index refreshed successfully.");
+
+    return successResponse(`Synced ${transformedData.length} items.`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Internal Lambda Error (Unhandled Exception)", {
+      error: error instanceof Error ? error : new Error(errorMessage),
+    });
+    return errorResponse(500, "Internal Server Error.");
   }
 };
