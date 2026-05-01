@@ -85,7 +85,7 @@ export const handler = async (
 
     // Fetching collections in parallel
     const [achievements] = await Promise.all([
-      db.collection<Achievement>("Project").find().toArray(),
+      db.collection<Achievement>("Achievement").find().toArray(),
     ]);
 
     logger.info("Step 3: Transforming data");
