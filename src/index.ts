@@ -137,15 +137,29 @@ export const handler = async (
     });
 
     logger.info("Step 5: Bulk upload", { count: transformedData.length });
-    const body = transformedData.flatMap((doc) => [
-      { index: { _index: OPENSEARCH_INDEX_NAME, _id: doc.id } },
-      doc,
-    ]);
+    let successCount = 0;
+    let errorCount = 0;
 
-    const result = await osClient.bulk({ refresh: true, body });
+    for (const doc of transformedData) {
+      try {
+        await osClient.index({
+          index: OPENSEARCH_INDEX_NAME,
+          id: doc.id,
+          body: doc,
+        });
+        successCount++;
+      } catch (err) {
+        logger.error(`Failed to index document ID: ${doc.id}`, { error: err });
+        errorCount++;
+      }
+    }
 
-    if (result.body.errors) {
-      throw new Error("Bulk upload errors occurred.");
+    await osClient.indices.refresh({ index: OPENSEARCH_INDEX_NAME });
+
+    if (errorCount > 0) {
+      throw new Error(
+        `Upload completed with errors. ${successCount} succeeded, ${errorCount} failed.`
+      );
     }
 
     return { statusCode: 200, body: `Synced ${transformedData.length} items.` };
