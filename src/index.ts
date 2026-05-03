@@ -1,6 +1,12 @@
 import { ScheduledEvent, Context } from "aws-lambda";
 import { logger } from "./logger";
-import { getAchievements } from "./db";
+import {
+  getTechnologies,
+  getAchievements,
+  getCompanies,
+  getProjects,
+  getFeedback,
+} from "./db";
 import { loadAndValidateConfig } from "./config";
 import { errorResponse, successResponse } from "./response";
 import {
@@ -11,7 +17,13 @@ import {
   bulkUpload,
 } from "./open-search";
 import { OpenSearchDocument, OpenSearchIndexConfig } from "./types";
-import { transformAchievement } from "./transformers";
+import {
+  transformAchievement,
+  transformTechnology,
+  transformFeedback,
+  transformProject,
+  transformCompany,
+} from "./transformers";
 
 export const handler = async (
   event: ScheduledEvent,
@@ -36,14 +48,31 @@ export const handler = async (
     } = config.data;
 
     logger.info("Step 2: Connecting to MongoDB and fetching data");
-    const [achievements] = await Promise.all([getAchievements(MONGODB_URL)]);
+    const [achievements, projects, companies, feedback, technologies] =
+      await Promise.all([
+        getAchievements(MONGODB_URL),
+        getProjects(MONGODB_URL),
+        getCompanies(MONGODB_URL),
+        getFeedback(MONGODB_URL),
+        getTechnologies(MONGODB_URL),
+      ]);
 
     logger.info("Step 3: Transforming data", {
-      achievementCount: achievements.length,
+      counts: {
+        achievements: achievements.length,
+        projects: projects.length,
+        companies: companies.length,
+        feedback: feedback.length,
+        technologies: technologies.length,
+      },
     });
 
     const transformedData: OpenSearchDocument[] = [
       ...achievements.map(transformAchievement),
+      ...projects.map(transformProject),
+      ...companies.map(transformCompany),
+      ...feedback.map(transformFeedback),
+      ...technologies.map(transformTechnology),
     ];
 
     if (transformedData.length === 0) {

@@ -7,18 +7,18 @@ export interface CompanyLocation {
 
 export interface CompanyPosition {
   title: string;
-  startAt: Date;
-  endAt?: Date | null;
+  startAt: Date | string;
+  endAt?: Date | string | null;
 }
 
 export interface Company {
   _id: ObjectId;
   name: string;
-  startAt: Date;
-  endAt?: Date | null;
+  startAt: Date | string;
+  endAt?: Date | string | null;
   location: CompanyLocation;
-  reasonsOfLeaving: string[];
+  reasonsOfLeaving?: string[];
   position: string;
-  positions: CompanyPosition[];
-  logo: string;
+  positions?: CompanyPosition[];
+  logo?: string;
 }

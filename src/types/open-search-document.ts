@@ -5,5 +5,7 @@ export interface OpenSearchDocument {
   type: SearchItemType;
   title: string;
   subtitle: string;
+  url?: string;
+  image?: string;
   searchable_text: string;
 }

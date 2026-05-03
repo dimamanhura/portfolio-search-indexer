@@ -53,7 +53,12 @@ export const createIndex = async (config: OpenSearchIndexConfig) => {
           type: { type: "keyword" },
           title: { type: "text" },
           subtitle: { type: "text" },
-          searchable_text: { type: "text" },
+          url: { type: "keyword" },
+          image: { type: "keyword" },
+          searchable_text: {
+            type: "text",
+            term_vector: "with_positions_offsets",
+          },
         },
       },
     },

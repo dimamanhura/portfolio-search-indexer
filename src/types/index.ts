@@ -4,4 +4,8 @@ export { SearchItemType } from "./search-item-type";
 export { LambdaResponse } from "./lambda-response";
 export { ConfigResult } from "./config-result";
 export { Achievement } from "./achievement";
+export { Technology } from "./technology";
 export { AppConfig } from "./app-config";
+export { Feedback } from "./feedback";
+export { Project } from "./project";
+export { Company } from "./company";

@@ -2,9 +2,9 @@ import { ObjectId } from "mongodb";
 
 export interface Feedback {
   _id: ObjectId;
-  sectionId?: ObjectId | null;
+  section?: string;
   review: string;
   featured: boolean;
   author: string;
-  receivedAt: Date;
+  receivedAt: Date | string;
 }
