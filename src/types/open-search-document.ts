@@ -1,8 +1,8 @@
-import { SearchItemType } from "./search-item-type";
+import { SearchEntityType } from "./search-entity-type";
 
 export interface OpenSearchDocument {
   id: string;
-  type: SearchItemType;
+  type: SearchEntityType;
   title: string;
   subtitle: string;
   url?: string;

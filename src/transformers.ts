@@ -1,6 +1,6 @@
 import {
   OpenSearchDocument,
-  SearchItemType,
+  SearchEntityType,
   Achievement,
   Technology,
   Feedback,
@@ -18,7 +18,7 @@ export const transformProject = (project: Project): OpenSearchDocument => {
 
   return {
     id: project._id.toString(),
-    type: SearchItemType.project,
+    type: SearchEntityType.project,
     title: project.name,
     subtitle: project.shortDescription,
     url: `/projects/${project.slug}`,
@@ -44,7 +44,7 @@ export const transformAchievement = (
 
   return {
     id: idStr,
-    type: SearchItemType.achievement,
+    type: SearchEntityType.achievement,
     title: achievement.title || "",
     subtitle: "Project Achievement",
     url: `/achievements/?id=${idStr}`,
@@ -64,7 +64,7 @@ export const transformFeedback = (feedback: Feedback): OpenSearchDocument => {
 
   return {
     id: idStr,
-    type: SearchItemType.feedback,
+    type: SearchEntityType.feedback,
     title: `Feedback: ${feedback.section || "General"}`,
     subtitle: `Review by ${feedback.author}`,
     url: `/feedback/?id=${idStr}`,
@@ -78,7 +78,7 @@ export const transformCompany = (company: Company): OpenSearchDocument => {
 
   return {
     id: company._id.toString(),
-    type: SearchItemType.company,
+    type: SearchEntityType.company,
     title: company.name,
     subtitle: `${company.position} at ${company.name} (${company.location.city}, ${company.location.country})`,
     ...(company.logo && { image: company.logo }),
@@ -103,7 +103,7 @@ export const transformTechnology = (tech: Technology): OpenSearchDocument => {
 
   return {
     id: tech._id.toString(),
-    type: SearchItemType.technology,
+    type: SearchEntityType.technology,
     title: tech.title,
     subtitle: subtitle,
     ...(tech.logo && { image: tech.logo }),

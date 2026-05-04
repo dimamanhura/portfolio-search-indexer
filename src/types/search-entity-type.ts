@@ -1,4 +1,4 @@
-export enum SearchItemType {
+export enum SearchEntityType {
   project = "project",
   achievement = "achievement",
   feedback = "feedback",
